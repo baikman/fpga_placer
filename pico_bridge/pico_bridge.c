@@ -113,6 +113,7 @@ int main(void) {
     ssd1306_clear(&display);
     ssd1306_draw_text(&display, 0, 2, "NETLIST SENDING");
     ssd1306_show(&display);
+    uart_putc_raw(FPGA_UART, 0xAD);
     uart_write_blocking(uart0, netlist_data, sizeof(netlist_data));
     ssd1306_clear(&display);
     ssd1306_draw_text(&display, 0, 2, "NETLIST SENT");

@@ -49,6 +49,22 @@ module top (
         .valid(rx_valid)
     );
 
+    wire loader_start = rx_valid && (rx_data == 8'hAD);
+    wire [7:0] loaded_cell_count;
+    wire [7:0] loaded_net_count;
+    wire netlist_done;
+
+    netlist_loader loader_inst (
+        .clk(clk),
+        .rst(rst),
+        .start(loader_start),
+        .rx_data(rx_data),
+        .rx_valid(rx_valid),
+        .cell_count(loaded_cell_count),
+        .net_count(loaded_net_count),
+        .done(netlist_done)
+    );
+
     rom rom_inst (
         .address(rom_address),
         .instruction(instruction)
