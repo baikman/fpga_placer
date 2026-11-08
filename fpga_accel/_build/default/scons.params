@@ -1,0 +1,33 @@
+timestamp: "07185910000"
+arch: xilinx
+fpga_info {
+  fpga_id: "xc7a35tcpg236-1"
+  part_num: "XC7A35T-1CPG236"
+  size: "35k"
+  xilinx_params {
+    yosys_family: "artix7"
+    yosys_arch: "xc7"
+    yosys_part: "xc7a35tcpg236-1"
+    chipdb_file_path: "/home/brandon/.apio/packages/openxc7/chipdb/xc7a35tcpg236.bin"
+  }
+}
+environment {
+  platform_id: "linux-x86-64"
+  is_windows: false
+  terminal_mode: FORCE_TERMINAL
+  theme_name: "light"
+  yosys_path: "/home/brandon/.apio/packages/oss-cad-suite/share/yosys"
+  trellis_path: "/home/brandon/.apio/packages/oss-cad-suite/share/trellis"
+  scons_shell_id: "bash"
+  xilinx_prjxray_db_path: "/home/brandon/.apio/packages/openxc7/share/nextpnr/external/prjxray-db"
+}
+apio_env_params {
+  env_name: "default"
+  board_id: "basys3"
+  top_module: "top"
+}
+target {
+  upload {
+    programmer_cmd: "openFPGALoader --force-terminal-mode --verify --board basys3 $SOURCE"
+  }
+}
