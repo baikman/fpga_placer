@@ -14,6 +14,13 @@ module netlist_loader (
     output reg [7:0] read_load_start,
     output reg [7:0] read_load_cell,
 
+    input wire [7:0] read_net_1,
+    input wire [7:0] read_load_1,
+    output reg [7:0] read_driver_1,
+    output reg [7:0] read_load_count_1,
+    output reg [7:0] read_load_start_1,
+    output reg [7:0] read_load_cell_1,
+
     output reg [7:0] cell_count,
     output reg [7:0] net_count,
     output reg [15:0] alpha,
@@ -44,6 +51,11 @@ module netlist_loader (
         read_load_count <= net_load_count[read_net];
         read_load_start <= net_load_start[read_net];
         read_load_cell <= load_cell[read_load];
+        // Independent synchronous read port for the second HPWL lane.
+        read_driver_1 <= net_driver[read_net_1];
+        read_load_count_1 <= net_load_count[read_net_1];
+        read_load_start_1 <= net_load_start[read_net_1];
+        read_load_cell_1 <= load_cell[read_load_1];
     end
 
     always @(posedge clk or posedge rst) begin

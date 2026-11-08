@@ -46,6 +46,12 @@ module top (
     wire [7:0] net_load_count;
     wire [7:0] net_load_start;
     wire [7:0] load_cell;
+    wire [7:0] net_read_address_1;
+    wire [7:0] load_read_address_1;
+    wire [7:0] net_driver_1;
+    wire [7:0] net_load_count_1;
+    wire [7:0] net_load_start_1;
+    wire [7:0] load_cell_1;
 
     netlist_loader loader_inst (
         .clk(clk),
@@ -62,20 +68,28 @@ module top (
         .read_driver(net_driver),
         .read_load_count(net_load_count),
         .read_load_start(net_load_start),
+        .read_net_1(net_read_address_1),
+        .read_load_1(load_read_address_1),
+        .read_driver_1(net_driver_1),
+        .read_load_count_1(net_load_count_1),
+        .read_load_start_1(net_load_start_1),
+        .read_load_cell_1(load_cell_1),
         .read_load_cell(load_cell)
     );
 
     wire placement_done;
-    wire [5:0] position_read_address;
-    wire [5:0] position_read_data;
+    wire [6:0] position_read_address;
+    wire [7:0] position_read_data;
+    wire [6:0] position_read_address_1;
+    wire [7:0] position_read_data_1;
     wire position_write_enable;
-    wire [5:0] position_write_address;
-    wire [5:0] position_write_data;
+    wire [6:0] position_write_address;
+    wire [7:0] position_write_data;
 
     wire [15:0] best_cost;
     wire anneal_done;
     // Preserve the best-coordinate memory until the coordinate sender is added.
-    (* keep = "true" *) wire [5:0] best_position_data;
+    (* keep = "true" *) wire [7:0] best_position_data;
 
     placement_init placement_inst (
         .clk(clk),
@@ -85,6 +99,8 @@ module top (
         .done(placement_done),
         .read_cell(position_read_address),
         .read_position(position_read_data),
+        .read_cell_1(position_read_address_1),
+        .read_position_1(position_read_data_1),
         .write_enable(position_write_enable),
         .write_cell(position_write_address),
         .write_position(position_write_data)
@@ -102,9 +118,17 @@ module top (
         .read_driver(net_driver),
         .read_load_count(net_load_count),
         .read_load_start(net_load_start),
+        .read_net_1(net_read_address_1),
+        .read_load_1(load_read_address_1),
+        .read_driver_1(net_driver_1),
+        .read_load_count_1(net_load_count_1),
+        .read_load_start_1(net_load_start_1),
+        .read_load_cell_1(load_cell_1),
         .read_load_cell(load_cell),
         .read_cell(position_read_address),
         .read_position(position_read_data),
+        .read_cell_1(position_read_address_1),
+        .read_position_1(position_read_data_1),
         .write_enable(position_write_enable),
         .write_cell(position_write_address),
         .write_position(position_write_data),
@@ -119,27 +143,53 @@ module top (
     localparam WAIT_TX_DONE = 2'd2;
     localparam WAIT_COST_RELEASE = 2'd3;
 
-    reg [1:0] tx_state;
-    reg [7:0] cost_high;
-    reg sending_high;
+    reg netlist_done_previous;
+    reg timing_active;
+    reg [63:0] elapsed_cycles;
 
-    // Return two bytes: cost[7:0], then cost[15:8].
+    // Start on the same edge that placement_init accepts netlist_done.
+    // Stop when annealer asserts done; the observing edge adds no cycle.
+    // Loading and transmitting the result are outside this interval.
+    always @(posedge clk or posedge rst) begin
+        if (rst) begin
+            netlist_done_previous <= 1'b0;
+            timing_active <= 1'b0;
+            elapsed_cycles <= 64'd0;
+        end else begin
+            netlist_done_previous <= netlist_done;
+            if (netlist_done && !netlist_done_previous) begin
+                elapsed_cycles <= 64'd0;
+                timing_active <= 1'b1;
+            end else if (timing_active) begin
+                if (anneal_done)
+                    timing_active <= 1'b0;
+                else
+                    elapsed_cycles <= elapsed_cycles + 64'd1;
+            end
+        end
+    end
+
+    reg [1:0] tx_state;
+    reg [79:0] reply_data;
+    reg [3:0] reply_index;
+
+    // Return cost (2 bytes), then elapsed cycles (8 bytes), both low byte first.
     always @(posedge clk or posedge rst) begin
         if (rst) begin
             tx_state <= WAIT_COST;
             tx_data <= 8'd0;
             tx_start <= 1'b0;
-            cost_high <= 8'd0;
-            sending_high <= 1'b0;
+            reply_data <= 80'd0;
+            reply_index <= 4'd0;
         end else begin
             tx_start <= 1'b0;
 
             case (tx_state)
                 WAIT_COST: begin
-                    if (anneal_done && !tx_busy) begin
+                    if (anneal_done && !timing_active && !tx_busy) begin
                         tx_data <= best_cost[7:0];
-                        cost_high <= best_cost[15:8];
-                        sending_high <= 1'b0;
+                        reply_data <= {elapsed_cycles, best_cost};
+                        reply_index <= 4'd0;
                         tx_start <= 1'b1;
                         tx_state <= WAIT_TX_BUSY;
                     end
@@ -153,9 +203,10 @@ module top (
 
                 WAIT_TX_DONE: begin
                     if (!tx_busy) begin
-                        if (!sending_high) begin
-                            tx_data <= cost_high;
-                            sending_high <= 1'b1;
+                        if (reply_index != 4'd9) begin
+                            tx_data <= reply_data[15:8];
+                            reply_data <= {8'd0, reply_data[79:8]};
+                            reply_index <= reply_index + 4'd1;
                             tx_start <= 1'b1;
                             tx_state <= WAIT_TX_BUSY;
                         end else begin

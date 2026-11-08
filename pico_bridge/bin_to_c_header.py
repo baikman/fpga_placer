@@ -1,6 +1,6 @@
 from pathlib import Path
 
-data = Path("test.bin").read_bytes()
+data = Path("test3.bin").read_bytes()
 values = ", ".join(f"0x{b:02X}" for b in data)
 
 Path("netlist_data.h").write_text(

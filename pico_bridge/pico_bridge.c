@@ -25,6 +25,7 @@
 #define FPGA_UART_TX_PIN 0
 #define FPGA_UART_RX_PIN 1
 #define FPGA_UART_BAUD 115200
+#define FPGA_CLOCK_HZ 100000000ULL
 
 // LED
 #define LED_PIN 18
@@ -134,15 +135,26 @@ int main(void) {
     ssd1306_draw_text(&display, 0, 2, "ANNEALING...");
     ssd1306_show(&display);
 
-    // FPGA returns the best cost, low byte first, followed by the high byte.
+    // Reply: 2-byte best cost, then 8-byte cycle count, both little endian.
     uint8_t cost_low = uart_getc(FPGA_UART);
     uint8_t cost_high = uart_getc(FPGA_UART);
     uint16_t cost = (uint16_t)cost_low | ((uint16_t)cost_high << 8);
+    uint64_t elapsed_cycles = 0;
+    for (unsigned int byte = 0; byte < 8; byte++)
+        elapsed_cycles |= (uint64_t)(uint8_t)uart_getc(FPGA_UART) << (8 * byte);
+
+    // Integer conversion avoids requiring floating-point printf support.
+    uint64_t elapsed_us = elapsed_cycles / (FPGA_CLOCK_HZ / 1000000ULL);
 
     char cost_text[20];
+    char time_text[32];
     snprintf(cost_text, sizeof(cost_text), "BEST HPWL %u", (unsigned int)cost);
+    snprintf(time_text, sizeof(time_text), "TIME %llu.%03llu ms",
+             (unsigned long long)(elapsed_us / 1000),
+             (unsigned long long)(elapsed_us % 1000));
     ssd1306_clear(&display);
     ssd1306_draw_text(&display, 0, 2, cost_text);
+    ssd1306_draw_text(&display, 0, 4, time_text);
     ssd1306_show(&display);
 
     while (true)

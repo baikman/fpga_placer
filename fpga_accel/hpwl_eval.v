@@ -1,16 +1,19 @@
 `default_nettype none
 
-module hpwl_eval (
+module hpwl_eval #(
+    parameter integer FIRST_NET = 0,
+    parameter integer NET_STRIDE = 1
+) (
     input wire clk,
     input wire rst,
     input wire start,
     input wire [7:0] net_count,
 
     input wire swap_enable,
-    input wire [5:0] swap_a,
-    input wire [5:0] swap_b,
-    input wire [5:0] position_a,
-    input wire [5:0] position_b,
+    input wire [6:0] swap_a,
+    input wire [6:0] swap_b,
+    input wire [7:0] position_a,
+    input wire [7:0] position_b,
 
     output reg [7:0] read_net,
     output reg [7:0] read_load,
@@ -19,8 +22,8 @@ module hpwl_eval (
     input wire [7:0] read_load_start,
     input wire [7:0] read_load_cell,
 
-    output reg [5:0] read_cell,
-    input wire [5:0] read_position,
+    output reg [6:0] read_cell,
+    input wire [7:0] read_position,
 
     output reg [15:0] cost,
     output reg done
@@ -39,46 +42,47 @@ module hpwl_eval (
     reg [3:0] state;
     reg [7:0] loads_remaining;
     reg have_endpoint;
-    reg [2:0] min_x;
-    reg [2:0] max_x;
-    reg [2:0] min_y;
-    reg [2:0] max_y;
+    reg [3:0] min_x;
+    reg [3:0] max_x;
+    reg [3:0] min_y;
+    reg [3:0] max_y;
 
     // Evaluate a candidate without modifying current placement memory.
     // read_cell stays stable through WAIT_POSITION and USE_POSITION.
-    wire [5:0] candidate_position =
+    wire [7:0] candidate_position =
         (swap_enable && read_cell == swap_a) ? position_b :
         (swap_enable && read_cell == swap_b) ? position_a : read_position;
-    wire [2:0] x = candidate_position[5:3];
-    wire [2:0] y = candidate_position[2:0];
+    wire [3:0] x = candidate_position[7:4];
+    wire [3:0] y = candidate_position[3:0];
 
     // Widen before arithmetic so the two spans and total cannot truncate.
     wire [15:0] net_cost = have_endpoint ?
-        ({13'd0, max_x} - {13'd0, min_x}) +
-        ({13'd0, max_y} - {13'd0, min_y}) : 16'd0;
+        ({12'd0, max_x} - {12'd0, min_x}) +
+        ({12'd0, max_y} - {12'd0, min_y}) : 16'd0;
 
     always @(posedge clk or posedge rst) begin
         if (rst) begin
             state <= WAIT_START;
             read_net <= 8'd0;
             read_load <= 8'd0;
-            read_cell <= 6'd0;
+            read_cell <= 7'd0;
             loads_remaining <= 8'd0;
             have_endpoint <= 1'b0;
-            min_x <= 3'd0;
-            max_x <= 3'd0;
-            min_y <= 3'd0;
-            max_y <= 3'd0;
+            min_x <= 4'd0;
+            max_x <= 4'd0;
+            min_y <= 4'd0;
+            max_y <= 4'd0;
             cost <= 16'd0;
             done <= 1'b0;
         end else begin
             case (state)
                 WAIT_START: begin
                     if (start) begin
-                        read_net <= 8'd0;
+                        read_net <= FIRST_NET;
                         cost <= 16'd0;
-                        done <= 1'b0;
-                        state <= WAIT_NET;
+                        // A lane may have no nets, e.g. odd lane with one net.
+                        done <= FIRST_NET >= net_count;
+                        state <= (FIRST_NET >= net_count) ? WAIT_RELEASE : WAIT_NET;
                     end
                 end
 
@@ -92,7 +96,7 @@ module hpwl_eval (
                     have_endpoint <= 1'b0;
 
                     if (read_driver != 8'hFF) begin
-                        read_cell <= read_driver[5:0];
+                        read_cell <= read_driver[6:0];
                         state <= WAIT_POSITION;
                     end else if (read_load_count != 8'd0) begin
                         state <= WAIT_LOAD;
@@ -104,7 +108,7 @@ module hpwl_eval (
                 WAIT_LOAD: state <= USE_LOAD;
 
                 USE_LOAD: begin
-                    read_cell <= read_load_cell[5:0];
+                    read_cell <= read_load_cell[6:0];
                     read_load <= read_load + 8'd1;
                     loads_remaining <= loads_remaining - 8'd1;
                     state <= WAIT_POSITION;
@@ -138,11 +142,11 @@ module hpwl_eval (
                     // Bounds now include the final endpoint from the previous
                     // clock, so its contribution is included in net_cost.
                     cost <= cost + net_cost;
-                    if (read_net == net_count - 8'd1) begin
+                    if (read_net + NET_STRIDE >= net_count) begin
                         done <= 1'b1;
                         state <= WAIT_RELEASE;
                     end else begin
-                        read_net <= read_net + 8'd1;
+                        read_net <= read_net + NET_STRIDE;
                         state <= WAIT_NET;
                     end
                 end
