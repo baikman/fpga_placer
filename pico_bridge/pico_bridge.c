@@ -23,6 +23,7 @@
 // UART to FPGA
 #define FPGA_UART uart0
 #define FPGA_UART_TX_PIN 0
+#define FPGA_UART_RX_PIN 1
 #define FPGA_UART_BAUD 115200
 
 // LED
@@ -52,6 +53,8 @@ int main(void) {
     // UART setup
     uart_init(FPGA_UART, FPGA_UART_BAUD);
     gpio_set_function(FPGA_UART_TX_PIN, GPIO_FUNC_UART);
+    gpio_set_function(FPGA_UART_RX_PIN, GPIO_FUNC_UART);
+    uart_set_fifo_enabled(FPGA_UART, true); // Buffer the reply during OLED updates.
 
     // LED setup
     gpio_init(LED_PIN);
@@ -65,6 +68,7 @@ int main(void) {
     uint8_t selected_digit = 0;
     float filtered_adc = (float)adc_read();
     uint8_t last_knob_digit = (uint8_t)(filtered_adc * 10.0f / 4096.0f);
+    digits[0] = last_knob_digit;
     const char *digit_labels[4] = {
         "0.X000", "0.0X00", "0.00X0", "0.000X"
     };
@@ -83,6 +87,7 @@ int main(void) {
         if (pressed != button_pressed) {
             button_pressed = pressed;
             if (button_pressed) {
+                digits[selected_digit] = knob_digit;
                 uart_putc_raw(FPGA_UART, 0xAA);
                 selected_digit = selected_digit + 1;
                 if (selected_digit == 4) break;
@@ -96,9 +101,8 @@ int main(void) {
             last_knob_digit = knob_digit;
         }
 
-        float alpha = (digits[0] * 1000 + digits[1] * 100 +
-                       digits[2] * 10 + digits[3]) / 10000.0f;
-        uint32_t alpha_digits = (uint32_t)(alpha * 10000.0f + 0.5f);
+        uint32_t alpha_digits = digits[0] * 1000 + digits[1] * 100 +
+                                digits[2] * 10 + digits[3];
         char alpha_text[20];
         snprintf(alpha_text, sizeof(alpha_text), "ALPHA 0.%04lu", (unsigned long)alpha_digits);
 
@@ -113,9 +117,34 @@ int main(void) {
     ssd1306_clear(&display);
     ssd1306_draw_text(&display, 0, 2, "NETLIST SENDING");
     ssd1306_show(&display);
+    while (uart_is_readable(FPGA_UART))
+        uart_getc(FPGA_UART);
+
+    // Convert the four selected decimal digits to alpha * 65536, rounded.
+    uint32_t alpha_digits = digits[0] * 1000 + digits[1] * 100 +
+                            digits[2] * 10 + digits[3];
+    uint16_t alpha_fixed = (uint16_t)((alpha_digits * 65536u + 5000u) / 10000u);
+
+    // Wire format: 0xAD, alpha low byte, alpha high byte, original netlist.
     uart_putc_raw(FPGA_UART, 0xAD);
-    uart_write_blocking(uart0, netlist_data, sizeof(netlist_data));
+    uart_putc_raw(FPGA_UART, (uint8_t)alpha_fixed);
+    uart_putc_raw(FPGA_UART, (uint8_t)(alpha_fixed >> 8));
+    uart_write_blocking(FPGA_UART, netlist_data, sizeof(netlist_data));
     ssd1306_clear(&display);
-    ssd1306_draw_text(&display, 0, 2, "NETLIST SENT");
+    ssd1306_draw_text(&display, 0, 2, "ANNEALING...");
     ssd1306_show(&display);
+
+    // FPGA returns the best cost, low byte first, followed by the high byte.
+    uint8_t cost_low = uart_getc(FPGA_UART);
+    uint8_t cost_high = uart_getc(FPGA_UART);
+    uint16_t cost = (uint16_t)cost_low | ((uint16_t)cost_high << 8);
+
+    char cost_text[20];
+    snprintf(cost_text, sizeof(cost_text), "BEST HPWL %u", (unsigned int)cost);
+    ssd1306_clear(&display);
+    ssd1306_draw_text(&display, 0, 2, cost_text);
+    ssd1306_show(&display);
+
+    while (true)
+        tight_loop_contents();
 }

@@ -7,20 +7,30 @@ module netlist_loader (
     input wire [7:0] rx_data,
     input wire rx_valid,
 
+    input wire [7:0] read_net,
+    input wire [7:0] read_load,
+    output reg [7:0] read_driver,
+    output reg [7:0] read_load_count,
+    output reg [7:0] read_load_start,
+    output reg [7:0] read_load_cell,
+
     output reg [7:0] cell_count,
     output reg [7:0] net_count,
+    output reg [15:0] alpha,
     output reg done
 );
     
-    localparam WAITING_START = 3'd0;
-    localparam WAITING_CELL = 3'd1;
-    localparam WAITING_NET = 3'd2;
-    localparam WAITING_LOAD_COUNT = 3'd3;
-    localparam WAITING_DRIVER = 3'd4;
-    localparam WAITING_LOAD = 3'd5;
-    localparam NEXT_NET = 3'd6;
+    localparam WAITING_START = 4'd0;
+    localparam WAITING_CELL = 4'd1;
+    localparam WAITING_NET = 4'd2;
+    localparam WAITING_LOAD_COUNT = 4'd3;
+    localparam WAITING_DRIVER = 4'd4;
+    localparam WAITING_LOAD = 4'd5;
+    localparam NEXT_NET = 4'd6;
+    localparam WAITING_ALPHA_LOW = 4'd7;
+    localparam WAITING_ALPHA_HIGH = 4'd8;
 
-    reg [2:0] state;
+    reg [3:0] state;
     reg [7:0] net_load_count [0:254];
     reg [7:0] net_index;
     reg [7:0] net_driver [0:254];
@@ -29,12 +39,20 @@ module netlist_loader (
     reg [7:0] load_ptr;
     reg [7:0] net_load_start [0:254];
 
+    always @(posedge clk) begin
+        read_driver <= net_driver[read_net];
+        read_load_count <= net_load_count[read_net];
+        read_load_start <= net_load_start[read_net];
+        read_load_cell <= load_cell[read_load];
+    end
+
     always @(posedge clk or posedge rst) begin
         if (rst) begin
             state <= WAITING_START;
             net_index <= 8'd0;
             cell_count <= 8'd0;
             net_count <= 8'd0;
+            alpha <= 16'd32768;
             load_ptr <= 8'd0;
             loads_remaining <= 8'd0;
             done <= 1'b0;
@@ -47,6 +65,21 @@ module netlist_loader (
                         load_ptr <= 8'd0;
                         loads_remaining <= 8'd0;
                         done <= 1'b0;
+                        state <= WAITING_ALPHA_LOW;
+                    end
+                end
+
+                // After 0xAD: Q0.16 alpha, low byte then high byte; then payload.
+                WAITING_ALPHA_LOW: begin
+                    if (rx_valid) begin
+                        alpha[7:0] <= rx_data;
+                        state <= WAITING_ALPHA_HIGH;
+                    end
+                end
+
+                WAITING_ALPHA_HIGH: begin
+                    if (rx_valid) begin
+                        alpha[15:8] <= rx_data;
                         state <= WAITING_CELL;
                     end
                 end

@@ -5,7 +5,12 @@ module placement_init (
     input wire rst,
     input wire start,
     input wire [7:0] cell_count,
+    input wire [5:0] read_cell,
+    input wire write_enable,
+    input wire [5:0] write_cell,
+    input wire [5:0] write_position,
 
+    output reg [5:0] read_position,
     output reg done
 );
     
@@ -32,6 +37,18 @@ module placement_init (
         else side = 4'd8;
     end
 
+    always @(posedge clk) begin
+        read_position <= position[read_cell];
+
+        // Both initialization and accepted swaps use the same write port.
+        if (!rst) begin
+            if (state == FILL)
+                position[cell_index] <= {x, y};
+            else if (write_enable)
+                position[write_cell] <= write_position;
+        end
+    end
+
     always @(posedge clk or posedge rst) begin
         if (rst) begin
             state <= WAIT_START;
@@ -52,8 +69,6 @@ module placement_init (
                 end
 
                 FILL: begin
-                    position[cell_index] <= {x, y};
-
                     if (cell_index == cell_count - 8'd1) begin
                         done <= 1'b1;
                         state <= WAIT_RELEASE;
